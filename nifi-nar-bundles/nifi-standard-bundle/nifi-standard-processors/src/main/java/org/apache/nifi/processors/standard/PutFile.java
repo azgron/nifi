@@ -169,6 +169,13 @@ public class PutFile extends AbstractProcessor {
             .allowableValues("true", "false")
             .defaultValue("true")
             .build();
+    public static final PropertyDescriptor PREVENT_PATH_ESCAPE = new PropertyDescriptor.Builder()
+            .name("Prevent Path Escape")
+            .description("If true, detect and prevent whether the resolved path (including following symlinks) still appears inline with the intended specified target directory.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
 
     public static final int MAX_FILE_LOCK_ATTEMPTS = 10;
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
@@ -201,6 +208,7 @@ public class PutFile extends AbstractProcessor {
         supDescriptors.add(CHANGE_PERMISSIONS);
         supDescriptors.add(CHANGE_OWNER);
         supDescriptors.add(CHANGE_GROUP);
+        supDescriptors.add(PREVENT_PATH_ESCAPE);
         properties = Collections.unmodifiableList(supDescriptors);
     }
 
@@ -233,7 +241,13 @@ public class PutFile extends AbstractProcessor {
             String filename = flowFile.getAttribute(CoreAttributes.FILENAME.key());
             final Path tempCopyFile = rootDirPath.resolve("." + filename);
             final Path copyFile = rootDirPath.resolve(filename);
-
+            if (context.getProperty(PREVENT_PATH_ESCAPE).asBoolean() && !(copyFile.startsWith(rootDirPath) || tempCopyFile.startsWith(rootDirPath))) {
+                flowFile = session.penalize(flowFile);
+                session.transfer(flowFile, REL_FAILURE);
+                logger.error("Resolved path: {} escapes the root dir path: {}", new Object[]{copyFile, rootDirPath});
+                return;
+            }
+            
             final String permissions = context.getProperty(CHANGE_PERMISSIONS).evaluateAttributeExpressions(flowFile).getValue();
             final String owner = context.getProperty(CHANGE_OWNER).evaluateAttributeExpressions(flowFile).getValue();
             final String group = context.getProperty(CHANGE_GROUP).evaluateAttributeExpressions(flowFile).getValue();
